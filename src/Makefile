@@ -5,7 +5,7 @@
 
 all: pcm-numa.x pcm-power.x pcm.x pcm-sensor.x pcm-msr.x pcm-memory.x pcm-tsx.x pcm-pcie.x
 
-CC=g++ -Wall
+CC=c++ -Wall
 OPT= -g -O3 
 
 # uncomment if you want to rely on Linux perf support (user needs CAP_SYS_ADMIN privileges)
