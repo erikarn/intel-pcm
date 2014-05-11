@@ -383,12 +383,14 @@ PCM::PCM() :
         }
     }
 
+#if 0
     if (cpu_family != 6)
     {
         std::cout << UnsupportedMessage << " CPU Family: " << cpu_family << std::endl;
         return;
     }
     if(!checkModel()) return;
+#endif
 
 #define PCM_PARAM_PROTECT(...) __VA_ARGS__
 #define PCM_CSTATE_ARRAY(array_ , val ) \
