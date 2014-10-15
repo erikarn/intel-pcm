@@ -33,8 +33,9 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 #ifdef __APPLE__
 #include "PCIDriverInterface.h"
-#define PCI_VENDOR_ID_INTEL 0x8086
 #endif
+
+#include <vector>
 
 #define PCM_USE_PCI_MM_LINUX
 
@@ -65,7 +66,6 @@ public:
     int32 write32(uint64 offset, uint32 value);
 
     int32 read64(uint64 offset, uint64 * value);
-    int32 write64(uint64 offset, uint64 value);
 
     virtual ~PciHandle();
 };
@@ -105,7 +105,6 @@ public:
     int32 write32(uint64 offset, uint32 value);
 
     int32 read64(uint64 offset, uint64 * value);
-    int32 write64(uint64 offset, uint64 value);
 
     virtual ~PciHandleM();
 };
@@ -122,6 +121,12 @@ class PciHandleMM
     uint32 device;
     uint32 function;
     uint64 base_addr;
+    
+#ifdef __linux__
+    static MCFGHeader mcfgHeader;
+    static std::vector<MCFGRecord> mcfgRecords;
+    static void readMCFG();
+#endif
 
     PciHandleMM();             // forbidden
     PciHandleMM(PciHandleM &); // forbidden
@@ -135,9 +140,12 @@ public:
     int32 write32(uint64 offset, uint32 value);
 
     int32 read64(uint64 offset, uint64 * value);
-    int32 write64(uint64 offset, uint64 value);
 
     virtual ~PciHandleMM();
+    
+#ifdef __linux__    
+    static const std::vector<MCFGRecord> & getMCFGRecords();
+#endif
 };
 
 #ifdef PCM_USE_PCI_MM_LINUX

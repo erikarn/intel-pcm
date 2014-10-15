@@ -55,6 +55,10 @@ uint64 ClientBW::getImcWrites()
 }
 
 ClientBW::~ClientBW() {}
+uint64 ClientBW::getIoRequests()
+{
+   return 0;
+}
 
 
 #elif __APPLE__
@@ -90,6 +94,13 @@ uint64 ClientBW::getImcWrites()
 {
 	uint32_t val = 0;
 	PCIDriver_readMemory32((uint8_t*)mmapAddr + PCM_CLIENT_IMC_DRAM_DATA_WRITES - CLIENT_EVENT_BASE, &val);
+	return (uint64_t)val;
+}
+
+uint64 ClientBW::getIoRequests()
+{
+	uint32_t val = 0;
+	PCIDriver_readMemory32((uint8_t*)mmapAddr + PCM_CLIENT_IMC_DRAM_IO_REQESTS - CLIENT_EVENT_BASE, &val);
 	return (uint64_t)val;
 }
 
@@ -139,6 +150,11 @@ uint64 ClientBW::getImcReads()
 uint64 ClientBW::getImcWrites()
 {
    return *((uint32*)(mmapAddr + PCM_CLIENT_IMC_DRAM_DATA_WRITES));
+}
+
+uint64 ClientBW::getIoRequests()
+{
+   return *((uint32*)(mmapAddr + PCM_CLIENT_IMC_DRAM_IO_REQESTS));
 }
 
 ClientBW::~ClientBW()

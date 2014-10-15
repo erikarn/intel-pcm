@@ -11,7 +11,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 // written by Roman Dementiev
-//            Austen Ott
+//            Thomas Willhalm
 
 #ifndef CPUCOUNTERS_HEADER
 #define CPUCOUNTERS_HEADER
@@ -22,7 +22,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
         Include this header file if you want to access CPU counters (core and uncore - including memory controller chips and QPI)
 */
 
-#define INTEL_PCM_VERSION "V2.6 (2013-11-04 13:43:31 +0100 ID=db05e43)"
+#define INTEL_PCM_VERSION "V2.7 (2014-09-10 12:12:32 +0200 ID=4ede607)"
 
 #ifndef INTELPCM_API
 #define INTELPCM_API
@@ -35,6 +35,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 #include "width_extender.h"
 #include <vector>
 #include <limits>
+#include <string>
 #include <string.h>
 
 #ifdef PCM_USE_PERF
@@ -45,6 +46,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 #endif
 
 #ifndef _MSC_VER
+#define NOMINMAX
 #include <semaphore.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -52,7 +54,6 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 #include <unistd.h>
 #endif
 
-#include <limits>
 class SystemCounterState;
 class SocketCounterState;
 class CoreCounterState;
@@ -84,12 +85,12 @@ class ServerPCICFGUncore
 
     PciHandleM ** qpiLLHandles;
     uint32 num_qpi_ports;
-    uint64 qpi_speed;
+    std::vector<uint64> qpi_speed;
     uint32 num_imc;
     uint32 MCX_CHY_REGISTER_DEV_ADDR[2][4];
     uint32 MCX_CHY_REGISTER_FUNC_ADDR[2][4];
 
-    static std::vector<uint32> socket2bus;
+    static std::vector<std::pair<uint32,uint32> > socket2bus;
     void initSocket2Bus();
 
     ServerPCICFGUncore();                 // forbidden
@@ -150,7 +151,7 @@ public:
     void unfreezeCounters();
 
     //! \brief Measures/computes the maximum theoretical QPI link bandwidth speed in GByte/seconds
-    uint64 computeQPISpeed();
+    uint64 computeQPISpeed(const uint32 ref_core, const int cpumodel);
 
     //! \brief Enable correct counting of various LLC events (with memory access perf penalty)
     void enableJKTWorkaround(bool enable);
@@ -158,7 +159,21 @@ public:
     //! \brief Returns the number of detected QPI ports
     uint32 getNumQPIPorts() const { return num_qpi_ports; }
 
-    //! \brief Returns the number of detected integrated memory controllers
+    //! \brief Returns the speed of the QPI link
+    uint64 getQPILinkSpeed(const uint32 linkNr) const { 
+	return qpi_speed.empty() ? 0 : qpi_speed[linkNr]; 
+    }
+
+	//! \brief Print QPI Speeds
+    void reportQPISpeed() const
+    {
+        std::cerr.precision(1);
+        std::cerr << std::fixed;
+        for (uint32 i=0; i<qpi_speed.size(); ++i)
+          std::cerr << "Max QPI link " << i << " speed: " << qpi_speed[i] / (1e9) << " GBytes/second (" << qpi_speed[i] / (2e9) << " GT/second)" << std::endl;
+    }
+
+	 //! \brief Returns the number of detected integrated memory controllers
     uint32 getNumMC() const { return num_imc; }
 
     //! \brief Returns the total number of detected memory channels on all integrated memory controllers
@@ -198,12 +213,13 @@ class INTELPCM_API PCM
     friend class UncoreCounterState;
     PCM();     // forbidden to call directly because it is a singleton
 
-    const char * UnsupportedMessage;
     int32 cpu_family;
     int32 cpu_model, original_cpu_model;
     int32 threads_per_core;
     int32 num_cores;
     int32 num_sockets;
+    int32 num_phys_cores_per_socket;
+    int32 num_online_cores;
     uint32 core_gen_counter_num_max;
     uint32 core_gen_counter_num_used;
     uint32 core_gen_counter_width;
@@ -219,14 +235,16 @@ class INTELPCM_API PCM
     int32 perfmon_version;
     int32 perfmon_config_anythread;
     uint64 nominal_frequency;
-    uint64 qpi_speed; // in GBytes/second
+    uint64 max_qpi_speed; // in GBytes/second
     int32 pkgThermalSpecPower, pkgMinimumPower, pkgMaximumPower;
 
     std::vector<TopologyEntry> topology;
     std::string errorMessage;
 
     static PCM * instance;
-    MsrHandle ** MSR;
+    bool allow_multiple_instances;
+    bool programmed_pmu;
+    SafeMsrHandle ** MSR;
     ServerPCICFGUncore ** server_pcicfg_uncore;
     uint32 PCU_MSR_PMON_BOX_CTL_ADDR, PCU_MSR_PMON_CTRX_ADDR[4];
     double joulesPerEnergyUnit;
@@ -237,8 +255,10 @@ class INTELPCM_API PCM
     ClientBW * clientBW;
     CounterWidthExtender * clientImcReads;
     CounterWidthExtender * clientImcWrites;
+    CounterWidthExtender * clientIoRequests;
 
     bool disable_JKT_workaround;
+    bool blocked; // track if time-driven counter update is running or not: PCM is blocked
 
     uint64 * coreCStateMsr; // MSR addresses of core C-state free-running counters
     uint64 * pkgCStateMsr; // MSR addresses of package C-state free-running counters
@@ -261,6 +281,32 @@ public:
         return (pkgCStateMsr != NULL && state <= MAX_C_STATE && pkgCStateMsr[state] != 0);
     }
 
+    //! \brief Redirects output destination to provided file, instead of std::cout
+    void setOutput(const std::string filename);
+
+    //! \brief Restores output, closes output file if opened
+    void restoreOutput();
+
+    //! \brief Set Run State. 
+    // Arguments:
+    //  -- 1 - program is running
+    //  -- 0 -pgram is sleeping
+    void setRunState(int new_state) { run_state = new_state; }
+
+    //! \brief Returns program's Run State. 
+    // Results:
+    //  -- 1 - program is running
+    //  -- 0 -pgram is sleeping
+    int getRunState(void) { return run_state; }
+
+    bool isBlocked(void) { return blocked; }
+    void setBlocked(const bool new_blocked) { blocked = new_blocked; }
+
+    //! \brief Call it before program() to allow multiple running instances of PCM on the same system
+    void allowMultipleInstances()
+    {
+        allow_multiple_instances = true;
+    }
 
     //! Mode of programming (parameter in the program() method)
     enum ProgramMode {
@@ -318,7 +364,7 @@ private:
     sem_t * numInstancesSemaphore;
         #endif
 
-    std::vector<uint32> socketRefCore;
+    std::vector<int32> socketRefCore;
 
     bool canUsePerf;
 #ifdef PCM_USE_PERF
@@ -339,6 +385,9 @@ private:
         PERF_GROUP_LEADER_COUNTER = PERF_INST_RETIRED_ANY_POS 
     };
 #endif
+    std::ofstream *outfile; // output file stream
+    std::streambuf *backup_ofile; // backup of original output = cout
+    int run_state; // either running (1) or sleeping (0)
 
     bool PMUinUse();
     void cleanupPMU();
@@ -356,7 +405,17 @@ private:
     void destroyMSR();
     void computeNominalFrequency();
     static bool isCPUModelSupported(int model_);
+    std::string getSupportedUarchCodenames() const;
+    std::string getUnsupportedMessage() const;
+    bool detectModel();
     bool checkModel();
+    void initCStateSupportTables();
+    bool discoverSystemTopology();
+    void printSystemTopology() const;
+    void initMSR();
+    bool detectNominalFrequency();
+    void initEnergyMonitoring();
+    void initUncoreObjects();
     void programBecktonUncore(int core);
     void programNehalemEPUncore(int core);
     void enableJKTWorkaround(bool enable);
@@ -366,6 +425,8 @@ private:
     void readAndAggregateEnergyCounters(const uint32 socket, CounterStateType & counterState);
     template <class CounterStateType>
     void readPackageThermalHeadroom(const uint32 socket, CounterStateType & counterState);
+    template <class CounterStateType>
+    void readAndAggregatePackageCStateResidencies(SafeMsrHandle * msr, CounterStateType & result);
     void readQPICounters(SystemCounterState & counterState);
     void reportQPISpeed() const;
 
@@ -375,7 +436,7 @@ private:
     uint32 CX_MSR_PMON_CTLY(uint32 Cbo, uint32 Ctl) const;
     uint32 CX_MSR_PMON_BOX_CTL(uint32 Cbo) const;
     uint32 getMaxNumOfCBoxes() const;
-    void programCboOpcodeFilter(const uint32 opc, const uint32 cbo, MsrHandle * msr);
+    void programCboOpcodeFilter(const uint32 opc, const uint32 cbo, SafeMsrHandle * msr);
 
 public:
     /*!
@@ -417,7 +478,7 @@ public:
         program PMUs: Intel(r) VTune(tm), Intel(r) Performance Tuning Utility (PTU). This code may make
         VTune or PTU measurements invalid. VTune or PTU measurement may make measurement with this code invalid. Please enable either usage of these routines or VTune/PTU/etc.
     */
-    ErrorCode program(ProgramMode mode_ = DEFAULT_EVENTS, void * parameter_ = NULL); // program counters and start counting
+    ErrorCode program(const ProgramMode mode_ = DEFAULT_EVENTS, const void * parameter_ = NULL); // program counters and start counting
 
     /*! \brief Programs uncore power/energy counters on microarchitectures codename SandyBridge-EP and IvyTown
         \param mc_profile profile for integrated memory controller PMU. See possible profile values in pcm-power.cpp example
@@ -468,7 +529,12 @@ public:
     */
     void getAllCounterStates(SystemCounterState & systemState, std::vector<SocketCounterState> & socketStates, std::vector<CoreCounterState> & coreStates);
 
-
+    /*! \brief Return true if the core in online
+    
+        \param i OS core id
+    */
+    bool isCoreOnline(int32 os_core_id) const;
+    
     /*! \brief Reads the counter state of the system
 
             System consists of several sockets (CPUs).
@@ -498,6 +564,11 @@ public:
             \return Number of logical cores in the system
     */
     uint32 getNumCores();
+    
+    /*! \brief Reads number of online logical cores in the system
+            \return Number of online logical cores in the system
+    */
+    uint32 getNumOnlineCores();
 
     /*! \brief Reads number of sockets (CPUs) in the system
             \return Number of sockets in the system
@@ -542,7 +613,8 @@ public:
         HASWELL_ULT = 69,
         HASWELL_2 = 70,
         IVYTOWN = 62,
-        END_OF_MODEL_LIST
+        HASWELLX = 63,
+        END_OF_MODEL_LIST = 0x0ffff
     };
 
     //! \brief Reads CPU model id
@@ -556,7 +628,7 @@ public:
     //! \brief Determines socket of given core
     //! \param core_id core identifier
     //! \return socket identifier
-    uint32 getSocketId(uint32 core_id)
+    int32 getSocketId(uint32 core_id)
     {
         return topology[core_id].socket;
     }
@@ -579,6 +651,7 @@ public:
             return 4;
         case JAKETOWN:
         case IVYTOWN:
+        case HASWELLX:
             return (server_pcicfg_uncore && server_pcicfg_uncore[0])?(server_pcicfg_uncore[0]->getNumQPIPorts()):0;
         }
         return 0;
@@ -598,6 +671,7 @@ public:
             return 2;
         case JAKETOWN:
         case IVYTOWN:
+        case HASWELLX:
             return (server_pcicfg_uncore && server_pcicfg_uncore[0])?(server_pcicfg_uncore[0]->getNumMC()):0;
         }
         return 0;
@@ -617,6 +691,7 @@ public:
             return 4;
         case JAKETOWN:
         case IVYTOWN:
+        case HASWELLX:
             return (server_pcicfg_uncore && server_pcicfg_uncore[0])?(server_pcicfg_uncore[0]->getNumMCChannels()):0;
         }
         return 0;
@@ -638,9 +713,24 @@ public:
         case IVYTOWN:
 		case IVY_BRIDGE:
         case HASWELL:
+        case HASWELLX:
             return 4;
         case ATOM:
             return 2;
+        }
+        return 0;
+    }
+
+    //! \brief Returns the frequency of Power Control Unit
+    uint64 getPCUFrequency() const
+    {
+        switch (cpu_model)
+        {
+        case JAKETOWN:
+        case IVYTOWN:
+            return 800000000ULL; // 800 MHz
+        case HASWELLX:
+            return 1000000000ULL; // 1 GHz
         }
         return 0;
     }
@@ -659,9 +749,10 @@ public:
 
 
     //! \brief Return QPI Link Speed in GBytes/second
-    //! \warning Works only for Nehalem-EX (Xeon 7500) and Westmere-EX (Xeon E7) processors
+    //! \warning Works only for Nehalem-EX (Xeon 7500) and Xeon E7 and E5 processors
     //! \return QPI Link Speed in GBytes/second
-    uint64 getQPILinkSpeed() const { return qpi_speed; }
+	uint64 getQPILinkSpeed(uint32 socketNr, uint32 linkNr) const
+       { return hasPCICFGUncore() ? server_pcicfg_uncore[socketNr]->getQPILinkSpeed(linkNr) : max_qpi_speed; }
 
     //! \brief Returns how many joules are in an internal processor energy unit
     double getJoulesPerEnergyUnit() const { return joulesPerEnergyUnit; }
@@ -684,19 +775,33 @@ public:
     enum PCIeEventCode
     {
         // PCIe read events (PCI devices reading from memory - application writes to disk/network/PCIe device)
-        PCIePRd = 0x195,   // PCIe UC read (partial cache line)
         PCIeRdCur = 0x19E, // PCIe read current (full cache line)
         PCIeNSRd = 0x1E4,  // PCIe non-snoop read (full cache line)
         // PCIe write events (PCI devices writing to memory - application reads from disk/network/PCIe device)
         PCIeWiLF = 0x194,  // PCIe Write (non-allocating) (full cache line)
         PCIeItoM = 0x19C,  // PCIe Write (allocating) (full cache line)
         PCIeNSWr = 0x1E5,  // PCIe Non-snoop write (partial cache line)
-        PCIeNSWrF = 0x1E6  // PCIe Non-snoop write (full cache line)
+        PCIeNSWrF = 0x1E6, // PCIe Non-snoop write (full cache line)
+        // events shared by CPU and IO
+        RFO = 0x180,       // Demand Data RFO; share the same code for CPU, use tid to filter PCIe only traffic
+        CRd = 0x181,       // Demand Code Read
+        DRd = 0x182,       // Demand Data Read
+        PRd = 0x187,       // Partial Reads (UC) (MMIO Read)
+        WiL = 0x18F,       // Write Invalidate Line - partial (MMIO write), PL: Not documented in HSX/IVT
+        ItoM = 0x1C8,      // Request Invalidate Line; share the same code for CPU, use tid to filter PCIe only traffic
     };
 
+    enum CBoEventTid
+    {
+        RFOtid = 0x3E,
+        ItoMtid = 0x3E,
+    };
+    
     //! \brief Program uncore PCIe monitoring event(s)
     //! \param event_ a PCIe event to monitor
-    void programPCIeCounters(const PCIeEventCode event_);
+    //! \param tid_ tid filter (PCM supports it only on Haswell server)
+    void programPCIeCounters(const PCIeEventCode event_, const uint32 tid_ = 0, const uint32 miss_ = 0);
+    void programPCIeMissCounters(const PCIeEventCode event_, const uint32 tid_ = 0);
 
     //! \brief Get the state of PCIe counter(s)
     //! \param socket_ socket of the PCIe controller
@@ -709,7 +814,8 @@ public:
     uint64 extractUncoreFixedCounterValue(uint64 val);
 
     //! \brief Get a string describing the codename of the processor microarchitecture
-    const char * getUArchCodename();
+    //! \param cpu_model_ cpu model (if no parameter provided the codename of the detected CPU is returned)
+    const char * getUArchCodename(int32 cpu_model_ = -1) const;
 
     //! \brief Get Brand string of processor
     static std::string getCPUBrandString();
@@ -723,14 +829,16 @@ public:
                  || cpu_model == PCM::IVY_BRIDGE
                  || cpu_model == PCM::HASWELL
                  || original_cpu_model == PCM::ATOM_AVOTON
+                 || cpu_model == PCM::HASWELLX
                );
     }
 
     bool dramEnergyMetricsAvailable() const
     {
         return ( 
-             cpu_model == PCM::JAKETOWN 
-          || cpu_model == PCM::IVYTOWN 
+             cpu_model == PCM::JAKETOWN
+          || cpu_model == PCM::IVYTOWN
+          || cpu_model == PCM::HASWELLX
           );
     }
 
@@ -746,6 +854,7 @@ public:
             ||  cpu_model == PCM::WESTMERE_EX 
             ||  cpu_model == PCM::JAKETOWN
             ||  cpu_model == PCM::IVYTOWN
+            ||  cpu_model == PCM::HASWELLX
                );
     }
 
@@ -766,6 +875,15 @@ public:
     #endif
                );
     }
+    
+    bool memoryIOTrafficMetricAvailable() const
+    {
+        return (
+                cpu_model == PCM::SANDY_BRIDGE
+            ||  cpu_model == PCM::IVY_BRIDGE
+            ||  cpu_model == PCM::HASWELL
+               );
+    }
 
     bool hasBecktonUncore() const
     {
@@ -779,6 +897,7 @@ public:
         return (
               cpu_model == PCM::JAKETOWN
           ||  cpu_model == PCM::IVYTOWN
+          ||  cpu_model == PCM::HASWELLX
                );
     }
 
@@ -864,7 +983,7 @@ protected:
     uint64 InvariantTSC; // invariant time stamp counter
     uint64 CStateResidency[PCM::MAX_C_STATE + 1];
     int32 ThermalHeadroom;
-    void readAndAggregate(MsrHandle *);
+    void readAndAggregate(SafeMsrHandle *);
 public:
     BasicCounterState() : 
       InstRetiredAny(0)
@@ -899,39 +1018,6 @@ public:
 
     //! Returns current thermal headroom below TjMax
    int32 getThermalHeadroom() const  { return ThermalHeadroom; }
-};
-
-//! \brief Server uncore power counter state
-//!
-class ServerUncorePowerState
-{
-   uint64 QPIClocks[3], QPIL0pTxCycles[3], QPIL1Cycles[3];
-   uint64 DRAMClocks[8];
-   uint64 MCCounter[8][4];// channel X counter
-   uint64 PCUCounter[4];
-   uint64 PackageEnergyStatus;
-   uint64 DRAMEnergyStatus;
-   int32 PackageThermalHeadroom;
-   friend class PCM;
-   template <class CounterStateType>
-   friend uint64 getQPIClocks(uint32 port, const CounterStateType & before, const CounterStateType & after);
-   template <class CounterStateType>
-   friend uint64 getQPIL0pTxCycles(uint32 port, const CounterStateType & before, const CounterStateType & after);
-   template <class CounterStateType>
-   friend uint64 getQPIL1Cycles(uint32 port, const CounterStateType & before, const CounterStateType & after);
-   template <class CounterStateType>
-   friend uint64 getDRAMClocks(uint32 channel, const CounterStateType & before, const CounterStateType & after);
-   template <class CounterStateType>
-   friend uint64 getMCCounter(uint32 channel, uint32 counter, const CounterStateType & before, const CounterStateType & after);
-   template <class CounterStateType>
-   friend uint64 getPCUCounter(uint32 counter, const CounterStateType & before, const CounterStateType & after);
-   template <class CounterStateType>
-   friend uint64 getConsumedEnergy(const CounterStateType & before, const CounterStateType & after);
-   template <class CounterStateType>
-   friend uint64 getDRAMConsumedEnergy(const CounterStateType & before, const CounterStateType & after);
-public:
-   //! Returns current thermal headroom below TjMax
-   int32 getPackageThermalHeadroom() const  { return PackageThermalHeadroom; }
 };
 
 /*! \brief Returns QPI LL clock ticks
@@ -1100,6 +1186,8 @@ class UncoreCounterState
     template <class CounterStateType>
     friend uint64 getBytesWrittenToMC(const CounterStateType & before, const CounterStateType & after);
     template <class CounterStateType>
+    friend uint64 getIORequestBytesFromMC(const CounterStateType & before, const CounterStateType & after);
+    template <class CounterStateType>
     friend uint64 getConsumedEnergy(const CounterStateType & before, const CounterStateType & after);
     template <class CounterStateType>
     friend uint64 getDRAMConsumedEnergy(const CounterStateType & before, const CounterStateType & after);    
@@ -1108,14 +1196,16 @@ class UncoreCounterState
 protected:
     uint64 UncMCFullWrites;
     uint64 UncMCNormalReads;
+    uint64 UncMCIORequests;
     uint64 PackageEnergyStatus;
     uint64 DRAMEnergyStatus;
     uint64 CStateResidency[PCM::MAX_C_STATE + 1];
-    void readAndAggregate(MsrHandle *);
+    void readAndAggregate(SafeMsrHandle *);
 public:
     UncoreCounterState() :
        UncMCFullWrites(0)
      , UncMCNormalReads(0)
+     , UncMCIORequests(0)
      , PackageEnergyStatus(0)
      , DRAMEnergyStatus(0)
     {
@@ -1127,12 +1217,60 @@ public:
     {
         UncMCFullWrites += o.UncMCFullWrites;
         UncMCNormalReads += o.UncMCNormalReads;
+        UncMCIORequests += o.UncMCIORequests;
         PackageEnergyStatus += o.PackageEnergyStatus;
         DRAMEnergyStatus += o.DRAMEnergyStatus;
         for(int i=0; i <= PCM::MAX_C_STATE ;++i)
             CStateResidency[i] += o.CStateResidency[i];
         return *this;
     }
+};
+
+
+//! \brief Server uncore power counter state
+//!
+class ServerUncorePowerState: public UncoreCounterState
+{
+   uint64 QPIClocks[3], QPIL0pTxCycles[3], QPIL1Cycles[3];
+   uint64 DRAMClocks[8];
+   uint64 MCCounter[8][4];// channel X counter
+   uint64 PCUCounter[4];
+   int32 PackageThermalHeadroom;
+   uint64 InvariantTSC; // invariant time stamp counter
+   friend class PCM;
+   template <class CounterStateType>
+   friend uint64 getQPIClocks(uint32 port, const CounterStateType & before, const CounterStateType & after);
+   template <class CounterStateType>
+   friend uint64 getQPIL0pTxCycles(uint32 port, const CounterStateType & before, const CounterStateType & after);
+   template <class CounterStateType>
+   friend uint64 getQPIL1Cycles(uint32 port, const CounterStateType & before, const CounterStateType & after);
+   template <class CounterStateType>
+   friend uint64 getDRAMClocks(uint32 channel, const CounterStateType & before, const CounterStateType & after);
+   template <class CounterStateType>
+   friend uint64 getMCCounter(uint32 channel, uint32 counter, const CounterStateType & before, const CounterStateType & after);
+   template <class CounterStateType>
+   friend uint64 getPCUCounter(uint32 counter, const CounterStateType & before, const CounterStateType & after);
+   template <class CounterStateType>
+   friend uint64 getConsumedEnergy(const CounterStateType & before, const CounterStateType & after);
+   template <class CounterStateType>
+   friend uint64 getDRAMConsumedEnergy(const CounterStateType & before, const CounterStateType & after);
+   template <class CounterStateType>
+   friend uint64 getInvariantTSC(const CounterStateType & before, const CounterStateType & after);
+public:
+   //! Returns current thermal headroom below TjMax
+   int32 getPackageThermalHeadroom() const  { return PackageThermalHeadroom; }
+   ServerUncorePowerState() :
+      PackageThermalHeadroom(0)
+    , InvariantTSC(0)
+   {
+      memset(&(QPIClocks[0]), 0, 3*sizeof(uint64));
+      memset(&(QPIL0pTxCycles[0]), 0, 3*sizeof(uint64));
+      memset(&(QPIL1Cycles[0]), 0, 3*sizeof(uint64));
+      memset(&(DRAMClocks[0]), 0, 8*sizeof(uint64));
+      memset(&(PCUCounter[0]), 0, 4*sizeof(uint64));
+      for(int i=0;i<8;++i)
+        memset(&(MCCounter[i][0]), 0, 4*sizeof(uint64));
+   }
 };
 
 //! \brief (Logical) core-wide counter state
@@ -1149,7 +1287,7 @@ class SocketCounterState : public BasicCounterState, public UncoreCounterState
     friend class PCM;
 
 protected:
-    void readAndAggregate(MsrHandle * handle)
+    void readAndAggregate(SafeMsrHandle * handle)
     {
         BasicCounterState::readAndAggregate(handle);
         UncoreCounterState::readAndAggregate(handle);
@@ -1172,7 +1310,7 @@ class SystemCounterState : public BasicCounterState, public UncoreCounterState
     uint64 uncoreTSC;
 
 protected:
-    void readAndAggregate(MsrHandle * handle)
+    void readAndAggregate(SafeMsrHandle * handle)
     {
         BasicCounterState::readAndAggregate(handle);
         UncoreCounterState::readAndAggregate(handle);
@@ -1198,8 +1336,11 @@ public:
 
     void accumulateSocketState(const SocketCounterState & o)
     {
-        BasicCounterState::operator += (o);
-        UncoreCounterState::operator += (o);
+		if (&o != NULL) // security check requirement
+		{
+			BasicCounterState::operator += (o);
+			UncoreCounterState::operator += (o);
+		}
     }
 };
 
@@ -1351,7 +1492,7 @@ inline double getCoreIPC(const SystemCounterState & before, const SystemCounterS
 {
     double ipc = getIPC(before, after);
     PCM * m = PCM::getInstance();
-    if (ipc >= 0. && m)
+    if (ipc >= 0. && m && (m->getNumCores() == m->getNumOnlineCores()))
         return ipc * double(m->getThreadsPerCore());
     return -1;
 }
@@ -1371,7 +1512,7 @@ inline double getTotalExecUsage(const SystemCounterState & before, const SystemC
 {
     double usage = getExecUsage(before, after);
     PCM * m = PCM::getInstance();
-    if (usage >= 0. && m)
+    if (usage >= 0. && m && (m->getNumCores() == m->getNumOnlineCores()))
         return usage * double(m->getThreadsPerCore());
     return -1;
 }
@@ -1711,6 +1852,18 @@ uint64 getBytesWrittenToMC(const CounterStateType & before, const CounterStateTy
     return (after.UncMCFullWrites - before.UncMCFullWrites) * 64;
 }
 
+/*! \brief Computes number of bytes of read/write requests from all IO sources
+
+    \param before CPU counter state before the experiment
+    \param after CPU counter state after the experiment
+    \return Number of bytes
+*/
+template <class CounterStateType>
+uint64 getIORequestBytesFromMC(const CounterStateType & before, const CounterStateType & after)
+{
+    return (after.UncMCIORequests - before.UncMCIORequests) * 64;
+}
+
 /*! \brief Returns the number of occured custom core events
 
     Read number of events programmed with the \c CUSTOM_CORE_EVENTS
@@ -1760,7 +1913,7 @@ inline double getIncomingQPILinkUtilization(uint32 socketNr, uint32 linkNr, cons
     if (!(m->qpiUtilizationMetricsAvailable())) return 0.;
 
     const double bytes = (double)getIncomingQPILinkBytes(socketNr, linkNr, before, after);
-    const uint64 max_speed = m->getQPILinkSpeed();
+    const uint64 max_speed = m->getQPILinkSpeed(socketNr, linkNr);
     const double max_bytes = (double)(double(max_speed) * double(getInvariantTSC(before, after) / double(m->getNumCores())) / double(m->getNominalFrequency()));
     return bytes / max_bytes;
 }
@@ -1797,7 +1950,7 @@ inline double getOutgoingQPILinkUtilization(uint32 socketNr, uint32 linkNr, cons
       const uint64 a = after.outgoingQPIDataNonDataFlits[socketNr][linkNr];
        // prevent overflows due to counter dissynchronisation
       const double flits = (double)((a > b) ? (a - b) : 0);
-      const double max_flits = ((double(getInvariantTSC(before, after))*double(m->getQPILinkSpeed())/(2.0*4.0))/double(m->getNominalFrequency()))/double(m->getNumCores());
+      const double max_flits = ((double(getInvariantTSC(before, after))*double(m->getQPILinkSpeed(socketNr, linkNr))/(2.0*4.0))/double(m->getNominalFrequency()))/double(m->getNumCores());
       if(flits > max_flits) return 1.; // prevent oveflows due to potential counter dissynchronization
       return (flits / max_flits);
     }
@@ -1821,7 +1974,7 @@ inline uint64 getOutgoingQPILinkBytes(uint32 socketNr, uint32 linkNr, const Syst
     if (!(m->outgoingQPITrafficMetricsAvailable())) return 0;
 
     const double util = getOutgoingQPILinkUtilization(socketNr, linkNr, before, after);
-    const double max_bytes = (double(m->getQPILinkSpeed()) * double(getInvariantTSC(before, after) / double(m->getNumCores())) / double(m->getNominalFrequency()));
+    const double max_bytes = (double(m->getQPILinkSpeed(socketNr, linkNr)) * double(getInvariantTSC(before, after) / double(m->getNumCores())) / double(m->getNominalFrequency()));
 
     return (uint64)(max_bytes * util);
 }

@@ -25,6 +25,7 @@
 #else
 #include <unistd.h>
 #include <signal.h>
+#include <sys/time.h> // for gettimeofday()
 #endif
 #include <math.h>
 #include <iomanip>
@@ -40,6 +41,9 @@
 #endif
 
 #include <vector>
+#define PCM_DELAY_DEFAULT 1.0 // in seconds
+#define PCM_DELAY_MIN 0.015 // 15 milliseconds is practical on most modern CPUs
+#define PCM_CALIBRATION_INTERVAL 50 // calibrate clock only every 50th iteration
 
 using namespace std;
 
@@ -86,18 +90,29 @@ TSXEvent eventDefinition[] = {
 
 };
 
-void print_usage(const char * progname)
+void print_usage(const string progname)
 {
-      std::cout << "\nUsage "<<progname<<" (delay | \"external_program\") [-C] [-e event1 ] [-e event2 ] [-e event3 ] [-e event4 ]\n\n";
-      std::cout << "  <delay>            - delay in seconds between updates. Either delay or \"external program\" parameters must be supplied\n";
-      std::cout << "  \"external_program\" - start external program and print the performance metrics for the execution at the end\n";
-      std::cout << "  -C             - output in csv format (optional)\n";
-      std::cout << "  -e eventX      - monitor custom TSX event (up to 4) - optional. List of supported events: \n\n";
-      for(uint32 i=0; i< sizeof(eventDefinition)/sizeof(TSXEvent); ++i)
-      {
-          cout << eventDefinition[i].name << "\t"<<eventDefinition[i].description<< endl;
-      }
-      cout << endl;
+    cerr << endl << " Usage: " << endl << " " << progname
+         << " --help | [delay] [options] [-- external_program [external_program_options]]" << endl;
+    cerr << "   <delay>                           => time interval to sample performance counters." << endl;
+    cerr << "                                        If not specified, or 0, with external program given" << endl;
+    cerr << "                                        will read counters only after external program finishes" << endl;
+    cerr << " Supported <options> are: " << endl;
+    cerr << "  -h    | --help  | /h               => print this help and exit" << endl;
+    cerr << "  -csv[=file.csv] | /csv[=file.csv]  => output compact CSV format to screen or" << endl
+         << "                                        to a file, in case filename is provided" << endl;
+    cerr << "  [-e event1] [-e event2] [-e event3]=> optional list of custom TSX events to monitor (up to 4)."
+         << "  The list of supported events:" << endl ;
+    for(uint32 i=0; i< sizeof(eventDefinition)/sizeof(TSXEvent); ++i)
+    {
+        cerr << eventDefinition[i].name << "\t"<<eventDefinition[i].description << endl;
+    }
+    cerr << endl;
+    cerr << " Examples:" << endl;
+    cerr << "  " << progname << " 1                  => print counters every second without core and socket output" << endl;
+    cerr << "  " << progname << " 0.5 -csv=test.log  => twice a second save counter values to test.log in CSV format" << endl;
+    cerr << "  " << progname << " /csv 5 2>/dev/null => one sampe every 5 seconds, and discard all diagnostic output" << endl;
+    cerr << endl;
 }
 
 template <class StateType>
@@ -172,93 +187,101 @@ int findEvent(const char * name)
 
 int main(int argc, char * argv[])
 {
+    set_signal_handlers();
+
 #ifdef PCM_FORCE_SILENT
     null_stream nullStream1, nullStream2;
     std::cout.rdbuf(&nullStream1);
     std::cerr.rdbuf(&nullStream2);
 #endif
 
-    cout << endl;
-    cout << " Intel(r) Performance Counter Monitor: Intel(r) Transactional Synchronization Extensions Monitoring Utility "<< endl;
-    cout << endl;
-    cout << " Copyright (c) 2013 Intel Corporation" << endl;
-    cout << endl;
-#ifdef _MSC_VER
-    // Increase the priority a bit to improve context switching delays on Windows
-    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+    cerr << endl;
+    cerr << " Intel(r) Performance Counter Monitor: Intel(r) Transactional Synchronization Extensions Monitoring Utility "<< endl;
+    cerr << endl;
+    cerr << " Copyright (c) 2013-2014 Intel Corporation" << endl;
+    cerr << endl;
 
-    TCHAR driverPath[1024];
-    GetCurrentDirectory(1024, driverPath);
-    wcscat(driverPath, L"\\msr.sys");
-
-    SetConsoleCtrlHandler((PHANDLER_ROUTINE)cleanup, TRUE);
-#else
-    signal(SIGPIPE, cleanup);
-    signal(SIGINT, cleanup);
-    signal(SIGKILL, cleanup);
-    signal(SIGTERM, cleanup);
-#endif
-
-    int delay = -1;
-    char * ext_program = NULL;
+    double delay = -1.0;
+    char *sysCmd = NULL;
+    char **sysArgv = NULL;
     std::vector<int> events;
     int cur_event;
     bool csv = false;
-
-    int my_opt = -1;
-    while ((my_opt = getopt(argc, argv, "e:cC")) != -1)
-    {
-           switch(my_opt)
-           {
-                   case 'e':
-                       if(events.size() >= 4)
-                       {
-                           cout << "At most 4 events are allowed"<< endl;
-                           return -1;
-                       }
-                       cur_event = findEvent(optarg);
-                       if(cur_event < 0)
-                       {
-                          cout << "Event "<<optarg<<" is not supported. See the list of supported events"<< endl;
-                          print_usage(argv[0]);
-                          return -1;
-                       }
-                       events.push_back(cur_event);
-                       break;
-                   case 'C':
-                   case 'c':
-                        csv = true;
-                        break;
-                   default:
-                       print_usage(argv[0]);
-                       return -1;
-           }
-     }
-
-     if (optind >= argc)
-     {
-         print_usage(argv[0]);
-         return -1;
-     }
-
-     delay = atoi(argv[optind]);
-     if(delay == 0)
-         ext_program = argv[optind];
-     else
-         delay = (delay<0)?1:delay;
-
-#ifdef _MSC_VER
-    // WARNING: This driver code (msr.sys) is only for testing purposes, not for production use
-    Driver drv;
-    // drv.stop();     // restart driver (usually not needed)
-    if (!drv.start(driverPath))
-    {
-        cout << "Cannot access CPU counters" << endl;
-        cout << "You must have signed msr.sys driver in your current directory and have administrator rights to run this program" << endl;
-    }
-#endif
+    long diff_usec = 0; // deviation of clock is useconds between measurements
+    int calibrated = PCM_CALIBRATION_INTERVAL - 2; // keeps track is the clock calibration needed
+    string program = string(argv[0]);
 
     PCM * m = PCM::getInstance();
+
+    if(argc > 1) do
+    {
+        argv++;
+        argc--;
+        if (strncmp(*argv, "--help", 6) == 0 ||
+            strncmp(*argv, "-h", 2) == 0 ||
+            strncmp(*argv, "/h", 2) == 0)
+        {
+            print_usage(program);
+            exit(EXIT_FAILURE);
+        }
+        else
+        if (strncmp(*argv, "-csv",4) == 0 ||
+            strncmp(*argv, "/csv",4) == 0)
+        {
+            csv = true;
+            string cmd = string(*argv);
+            size_t found = cmd.find('=',4);
+            if (found != string::npos) {
+                string filename = cmd.substr(found+1);
+                if (!filename.empty()) {
+                    m->setOutput(filename);
+                }
+            }
+            continue;
+        }
+        else
+        if (strncmp(*argv, "-e",2) == 0)
+        {
+			argv++;
+			argc--;
+            if(events.size() >= 4 ) {
+                cerr << "At most 4 events are allowed"<< endl;
+				exit(EXIT_FAILURE);
+            }
+            cur_event = findEvent(*argv);
+            if(cur_event < 0) {
+                cerr << "Event " << *argv << " is not supported. See the list of supported events"<< endl;
+                print_usage(program);
+                exit(EXIT_FAILURE);
+            }
+            events.push_back(cur_event);
+            continue;
+        }
+        else
+        if (strncmp(*argv, "--", 2) == 0)
+        {
+            argv++;
+            sysCmd = *argv;
+            sysArgv = argv;
+            break;
+        }
+        else
+        {
+            // any other options positional that is a floating point number is treated as <delay>,
+            // while the other options are ignored with a warning issues to stderr
+            double delay_input;
+            std::istringstream is_str_stream(*argv);
+            is_str_stream >> noskipws >> delay_input;
+            if(is_str_stream.eof() && !is_str_stream.fail()) {
+                delay = delay_input;
+            } else {
+                cerr << "WARNING: unknown command-line option: \"" << *argv << "\". Ignoring it." << endl;
+                print_usage(program);
+                exit(EXIT_FAILURE);
+            }
+            continue;
+        }
+    } while(argc > 1); // end of command line partsing loop
 
     EventSelectRegister def_event_select_reg;
     def_event_select_reg.value = 0;
@@ -301,55 +324,89 @@ int main(int argc, char * argv[])
         case PCM::Success:
             break;
         case PCM::MSRAccessDenied:
-            cout << "Access to Intel(r) Performance Counter Monitor has denied (no MSR or PCI CFG space access)." << endl;
-            return -1;
+            cerr << "Access to Intel(r) Performance Counter Monitor has denied (no MSR or PCI CFG space access)." << endl;
+            exit(EXIT_FAILURE);
         case PCM::PMUBusy:
-            cout << "Access to Intel(r) Performance Counter Monitor has denied (Performance Monitoring Unit is occupied by other application). Try to stop the application that uses PMU." << endl;
-            cout << "Alternatively you can try to reset PMU configuration at your own risk. Try to reset? (y/n)" << endl;
+            cerr << "Access to Intel(r) Performance Counter Monitor has denied (Performance Monitoring Unit is occupied by other application). Try to stop the application that uses PMU." << endl;
+            cerr << "Alternatively you can try to reset PMU configuration at your own risk. Try to reset? (y/n)" << endl;
             char yn;
             std::cin >> yn;
             if ('y' == yn)
             {
                 m->resetPMU();
-                cout << "PMU configuration has been reset. Try to rerun the program again." << endl;
+                cerr << "PMU configuration has been reset. Try to rerun the program again." << endl;
             }
-            return -1;
+            exit(EXIT_FAILURE);
         default:
-            cout << "Access to Intel(r) Performance Counter Monitor has denied (Unknown error)." << endl;
-            return -1;
+            cerr << "Access to Intel(r) Performance Counter Monitor has denied (Unknown error)." << endl;
+            exit(EXIT_FAILURE);
     }
     
-    cout << "\nDetected "<< m->getCPUBrandString() << " \"Intel(r) microarchitecture codename "<<m->getUArchCodename()<<"\""<<endl;
+    cerr << "\nDetected "<< m->getCPUBrandString() << " \"Intel(r) microarchitecture codename "<<m->getUArchCodename()<<"\""<<endl;
 
     uint64 BeforeTime = 0, AfterTime = 0;
     SystemCounterState SysBeforeState, SysAfterState;
     const uint32 ncores = m->getNumCores();
     std::vector<CoreCounterState> BeforeState, AfterState;
     std::vector<SocketCounterState> DummySocketStates;
-    cout << "Update every "<<delay<<" seconds"<< endl;
 
-    BeforeTime = m->getTickCount();
-    m->getAllCounterStates(SysBeforeState, DummySocketStates, BeforeState);
+    if ( (sysCmd != NULL) && (delay<=0.0) ) {
+        // in case external command is provided in command line, and
+        // delay either not provided (-1) or is zero
+        m->setBlocked(true);
+    } else {
+        m->setBlocked(false);
+    }
+
+    if (csv) {
+        if( delay<=0.0 ) delay = PCM_DELAY_DEFAULT;
+    } else {
+        // for non-CSV mode delay < 1.0 does not make a lot of practical sense: 
+        // hard to read from the screen, or
+        // in case delay is not provided in command line => set default
+        if( ((delay<1.0) && (delay>0.0)) || (delay<=0.0) ) delay = PCM_DELAY_DEFAULT;
+    }
+
+    cerr << "Update every "<<delay<<" seconds"<< endl;
 
     std::cout.precision(2);
     std::cout << std::fixed; 
 
+    BeforeTime = m->getTickCount();
+    m->getAllCounterStates(SysBeforeState, DummySocketStates, BeforeState);
+
+    if( sysCmd != NULL ) {
+        MySystem(sysCmd, sysArgv);
+    }
+
     while(1)
     {
+        if(!csv) cout << std::flush;
+        int delay_ms = int(delay * 1000);
+        int calibrated_delay_ms = delay_ms;
 #ifdef _MSC_VER
-        int delay_ms = delay * 1000;
         // compensate slow Windows console output
         if(AfterTime) delay_ms -= (int)(m->getTickCount() - BeforeTime);
         if(delay_ms < 0) delay_ms = 0;
 #else
-        int delay_ms = delay * 1000;
+        // compensation of delay on Linux/UNIX
+        // to make the samling interval as monotone as possible
+        struct timeval start_ts, end_ts;
+        if(calibrated == 0) {
+            gettimeofday(&end_ts, NULL);
+            diff_usec = (end_ts.tv_sec-start_ts.tv_sec)*1000000.0+(end_ts.tv_usec-start_ts.tv_usec);
+            calibrated_delay_ms = delay_ms - diff_usec/1000.0;
+        }
 #endif
 
-        if(ext_program)
-            MySystem(ext_program);
-        else
-            MySleepMs(delay_ms);
+        MySleepMs(calibrated_delay_ms);
 
+#ifndef _MSC_VER
+        calibrated = (calibrated + 1) % PCM_CALIBRATION_INTERVAL;
+        if(calibrated == 0) {
+            gettimeofday(&start_ts, NULL);
+        }
+#endif
         AfterTime = m->getTickCount();
         m->getAllCounterStates(SysAfterState, DummySocketStates, AfterState);
 
@@ -405,11 +462,10 @@ int main(int argc, char * argv[])
         swap(BeforeState, AfterState);
         swap(SysBeforeState, SysAfterState);
 
-        if(ext_program) break;
-
+        if ( m->isBlocked() ) {
+	// in case PCM was blocked after spawning child application: break monitoring loop here
+            break;
+        }
     }
-
-    m->cleanup();
-
-    return 0;
+    exit(EXIT_SUCCESS);
 }

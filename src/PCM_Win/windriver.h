@@ -18,6 +18,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 //
 
 #include <iostream>
+#include <comdef.h>
 #include "cpucounters.h"
 
 /*!     \file windriver.h
@@ -53,7 +54,6 @@ public:
 
             if (!hService)
             {
-                DWORD err = GetLastError();
                 hService = OpenService(hSCManager, L"Test MSR 4", SERVICE_START | DELETE | SERVICE_STOP);
             }
 
@@ -66,7 +66,8 @@ public:
                 DWORD err = GetLastError();
                 if (err == ERROR_SERVICE_ALREADY_RUNNING) return true;
 
-                std::cout << "Starting MSR service failed with error " << err << std::endl;
+                _com_error error(err);
+                std::wcerr << "Starting MSR service failed with error " << err << " " << error.ErrorMessage() << std::endl;
 
                 ControlService(hService, SERVICE_CONTROL_STOP, &ss);
 
@@ -75,23 +76,29 @@ public:
                 CloseServiceHandle(hService);
             }
             else
-                std::cout << "Opening service manager failed with error " << GetLastError() << std::endl;
+            {
+                _com_error error(GetLastError());
+                std::wcerr << "Opening service manager failed with error " << GetLastError() << " " << error.ErrorMessage() << std::endl;
+            }
 
             CloseServiceHandle(hSCManager);
         }
         else
-            std::cout << "Opening service manager failed with error " << GetLastError() << std::endl;
+        {
+            _com_error error(GetLastError());
+            std::wcerr << "Opening service manager failed with error " << GetLastError() << " " << error.ErrorMessage() << std::endl;
+        }
 
 
-		std::cout << "Trying to load winring0.dll/winring0.sys driver..." << std::endl;
+		std::cerr << "Trying to load winring0.dll/winring0.sys driver..." << std::endl;
 		if(PCM::initWinRing0Lib())
 		{
-			std::cout << "Using winring0.dll/winring0.sys driver.\n" << std::endl;
+			std::cerr << "Using winring0.dll/winring0.sys driver.\n" << std::endl;
 			return true;
 		}
 		else
 		{
-			std::cout << "Failed to load winring0.dll/winring0.sys driver.\n" << std::endl;
+			std::cerr << "Failed to load winring0.dll/winring0.sys driver.\n" << std::endl;
 		}
 
         return false;
@@ -114,7 +121,10 @@ public:
             CloseServiceHandle(hSCManager);
         }
         else
-            std::cout << "Opening service manager failed with error " << GetLastError() << std::endl;
+        {
+            _com_error error(GetLastError());
+            std::wcerr << "Opening service manager failed with error " << GetLastError() << " " << error.ErrorMessage() << std::endl;
+        }
     }
 
     /*! \brief Uninstall the driver
@@ -138,7 +148,10 @@ public:
             CloseServiceHandle(hSCManager);
         }
         else
-            std::cout << "Opening service manager failed with error " << GetLastError() << std::endl;
+        {
+            _com_error error(GetLastError());
+            std::wcerr << "Opening service manager failed with error " << GetLastError() << " " << error.ErrorMessage() << std::endl;
+        }
     }
 };
 

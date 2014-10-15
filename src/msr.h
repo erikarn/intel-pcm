@@ -49,7 +49,7 @@ public:
     MsrHandle(uint32 cpu);
     int32 read(uint64 msr_number, uint64 * value);
     int32 write(uint64 msr_number, uint64 value);
-    uint32 getCoreId() { return cpu_id; }
+    int32 getCoreId() { return cpu_id; }
 #ifdef __APPLE__
     int32 buildTopology(uint32 num_cores, void*);
     uint32 getNumInstances();
@@ -59,5 +59,87 @@ public:
     virtual ~MsrHandle();
 };
 
+class SafeMsrHandle
+{
+    MsrHandle * pHandle;
+    
+    SafeMsrHandle(SafeMsrHandle &); // forbidden
+    
+  public:
+    SafeMsrHandle() : pHandle(NULL) {}
+    
+    SafeMsrHandle(uint32 core_id)
+    {
+      pHandle = new MsrHandle(core_id);
+    }
+    
+    int32 read(uint64 msr_number, uint64 * value)
+    {
+      if(pHandle)
+        return pHandle->read(msr_number, value);
+      
+      *value = 0;
+
+      return sizeof(uint64);
+    }
+    
+    int32 write(uint64 msr_number, uint64 value)
+    {
+      if(pHandle)
+        return pHandle->write(msr_number, value);
+      
+      return sizeof(uint64);
+    }
+    int32 getCoreId()
+    {
+      if(pHandle)
+        return pHandle->getCoreId();
+      
+      throw std::exception();
+      return -1;
+    }
+#ifdef __APPLE__
+    int32 buildTopology(uint32 num_cores, void* p)
+    {
+      if(pHandle)
+        return pHandle->buildTopology(num_cores,p);
+
+      throw std::exception();
+      return 0;
+    }
+    uint32 getNumInstances()
+    {
+      if(pHandle)
+        return pHandle->getNumInstances();
+
+      throw std::exception();
+      return 0;
+    }
+    uint32 incrementNumInstances()
+    {
+      if(pHandle)
+        return pHandle->incrementNumInstances();
+
+      throw std::exception();
+      return 0;
+    }
+    uint32 decrementNumInstances()
+    {
+      if(pHandle)
+        return pHandle->decrementNumInstances();
+
+      throw std::exception();
+      return 0;
+    }
+#endif
+    virtual ~SafeMsrHandle()
+    {
+      if(pHandle)
+      {
+        delete pHandle;
+        pHandle = NULL;
+      }
+    }
+};
 
 #endif

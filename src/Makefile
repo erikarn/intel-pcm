@@ -1,101 +1,65 @@
 #
-# Copyright (c) 2009-2013 Intel Corporation
-# written by Roman Dementiev
+# Copyright (c) 2009-2014 Intel Corporation
+# written by Roman Dementiev and Jim Harris
 #
 
-all: pcm-numa.x pcm-power.x pcm.x pcm-sensor.x pcm-msr.x pcm-memory.x pcm-tsx.x pcm-pcie.x
+EXE = pcm-numa.x pcm-power.x pcm.x pcm-sensor.x pcm-msr.x pcm-memory.x pcm-tsx.x pcm-pcie.x
 
-CC=c++ -Wall
+CC=g++ -Wall
 OPT= -g -O3 
+all: $(EXE)
+
+CXXFLAGS += -Wall -g -O3 
 
 # uncomment if you want to rely on Linux perf support (user needs CAP_SYS_ADMIN privileges)
 ifneq ($(wildcard /usr/include/linux/perf_event.h),)
-#OPT+= -DPCM_USE_PERF 
+#CXXFLAGS += -DPCM_USE_PERF 
 endif
 
 UNAME:=$(shell uname)
 
 ifeq ($(UNAME), Linux)
-LIB= -lpthread -lrt
+LIB= -pthread -lrt
 endif
 ifeq ($(UNAME), Darwin)
-LIB= -lpthread -lPcmMsr
+LIB= -lpthread /usr/lib/libPcmMsr.dylib 
+CXXFLAGS += -I/usr/include 
 endif
 ifeq ($(UNAME), FreeBSD)
-LIB= -lpthread
+CXX=c++
+LIB= -lpthread -lc++
 endif
 
+COMMON_OBJS = msr.o cpucounters.o pci.o client_bw.o utils.o
+EXE_OBJS = $(EXE:.x=.o)
+OBJS = $(COMMON_OBJS) $(EXE_OBJS)
 
-msr.o: msr.h msr.cpp 
-	$(CC) $(OPT) -c msr.cpp
+# ensure 'make' does not delete the intermediate .o files
+.PRECIOUS: $(OBJS)
 
-pci.o: pci.h pci.cpp
-	$(CC) $(OPT) -c pci.cpp
+-include $(OBJS:.o=.d)
+%.x: %.o $(COMMON_OBJS)
+	$(CXX) -o $@ $^ $(LIB)
 
-client_bw.o: client_bw.h pci.h client_bw.cpp
-	$(CC) $(OPT) -c client_bw.cpp
-
-pcm-msr.o: msr.h msr.cpp pcm-msr.cpp
-	$(CC) $(OPT) -c pcm-msr.cpp
-
-pcm-memory.o: utils.h pcm-memory.cpp msr.h pci.h cpucounters.h types.h width_extender.h
-	$(CC) $(OPT) -c pcm-memory.cpp
-
-pcm-pcie.o: utils.h pcm-pcie.cpp msr.h pci.h cpucounters.h types.h width_extender.h
-	$(CC) $(OPT) -c pcm-pcie.cpp
-
-cpucounters.o: msr.h msr.cpp cpucounters.h cpucounters.cpp types.h width_extender.h 
-	$(CC) $(OPT) -c cpucounters.cpp
-
-msrtest.x: msrtest.cpp msr.o cpucounters.o cpucounters.h  msr.h  types.h
-	$(CC) $(OPT) msrtest.cpp -o msrtest.x msr.o cpucounters.o pci.o $(LIB)
-
-cpucounterstest.o: utils.h cpucounterstest.cpp cpucounters.h pci.h msr.h  types.h
-	$(CC) $(OPT) -c cpucounterstest.cpp
-
-pcm-power.o: utils.h pcm-power.cpp msr.h types.h pci.h cpucounters.h
-	$(CC) $(OPT) -c pcm-power.cpp
-
-pcm-numa.o: utils.h pcm-numa.cpp msr.h types.h pci.h cpucounters.h
-	$(CC) $(OPT) -c pcm-numa.cpp
-
-realtime.o: realtime.cpp cpucounters.h  msr.h  types.h
-	$(CC) $(OPT) -c realtime.cpp
-
-pcm.x: msr.o cpucounters.o cpucounterstest.o pci.o client_bw.o
-	$(CC) $(OPT) msr.o pci.o client_bw.o cpucounters.o cpucounterstest.o -o pcm.x $(LIB)
-
-pcm-tsx.o: pcm-tsx.cpp cpucounters.h pci.h msr.h  types.h
-	$(CC) $(OPT) -c pcm-tsx.cpp
-
-pcm-tsx.x: msr.o cpucounters.o pcm-tsx.o pci.o client_bw.o
-	$(CC) $(OPT) msr.o pci.o client_bw.o cpucounters.o pcm-tsx.o -o pcm-tsx.x $(LIB)
-
-pcm-power.x: msr.o cpucounters.o pci.o pcm-power.o client_bw.o
-	$(CC) $(OPT) msr.o client_bw.o cpucounters.o pci.o pcm-power.o -o pcm-power.x $(LIB)
-
-pcm-msr.x: msr.o pcm-msr.o
-	$(CC) $(OPT) msr.o pcm-msr.o -o pcm-msr.x $(LIB)
-
-realtime.x: msr.o cpucounters.o realtime.o
-	$(CC) $(OPT) pci.o msr.o cpucounters.o realtime.o -o realtime.x $(LIB)
-
-pcm-memory.x: msr.o pcm-memory.o pci.o cpucounters.o client_bw.o
-	$(CC) $(OPT) msr.o pci.o cpucounters.o client_bw.o pcm-memory.o -o pcm-memory.x $(LIB)
-
-pcm-pcie.x: msr.o pcm-pcie.o pci.o cpucounters.o client_bw.o
-	$(CC) $(OPT) msr.o pci.o cpucounters.o client_bw.o pcm-pcie.o -o pcm-pcie.x $(LIB)
-
-pcm-numa.x: msr.o pcm-numa.o pci.o cpucounters.o client_bw.o
-	$(CC) $(OPT) msr.o pci.o cpucounters.o client_bw.o pcm-numa.o -o pcm-numa.x $(LIB)
-pcm-sensor.o: pcm-sensor.cpp cpucounters.h cpuasynchcounter.h msr.h  types.h
-	$(CC) $(OPT) -c pcm-sensor.cpp
-
-pcm-sensor.x: msr.o cpucounters.o pcm-sensor.o pci.o client_bw.o
-	$(CC) $(OPT) msr.o pci.o client_bw.o cpucounters.o pcm-sensor.o -o pcm-sensor.x $(LIB)
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c $*.cpp -o $*.o
+	@# the following lines generate dependency files for the
+	@#  target object
+	@# from http://scottmcpeak.com/autodepend/autodepend.html
+	$(CXX) -MM $(CXXFLAGS) $*.cpp > $*.d
+	@# these sed/fmt commands modify the .d file to add a target
+	@#  rule for each .h and .cpp file with no dependencies;
+	@# this will force 'make' to rebuild any objects that
+	@#  depend on a file that has been renamed rather than
+	@#  exiting with an error
+	@mv -f $*.d $*.d.tmp
+	@sed -e 's|.*:|$*.o:|' < $*.d.tmp > $*.d
+	@sed -e 's/.*://' -e 's/\\$$//' < $*.d.tmp | fmt -1 | \
+	  sed -e 's/^ *//' -e 's/$$/:/' >> $*.d
+	@rm -f $*.d.tmp
 
 nice:
 	uncrustify --replace -c ~/uncrustify.cfg *.cpp *.h WinMSRDriver/Win7/*.h WinMSRDriver/Win7/*.c WinMSRDriver/WinXP/*.h WinMSRDriver/WinXP/*.c  PCM_Win/*.h PCM_Win/*.cpp  
 
 clean:
-	rm -rf *.x *.o *~
+	rm -rf *.x *.o *~ *.d

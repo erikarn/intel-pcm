@@ -16,29 +16,34 @@ CT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 */
 // written by Roman Dementiev
 
+
+/*!     \file utils.h
+        \brief Some common utility routines
+  */
+
 #ifndef PCM_UTILS_HEADER
 #define PCM_UTILS_HEADER
 
-#include <stdio.h>
-#include <string.h>
+#include <cstdio>
+#include <cstring>
+#include <fstream>
+#include "cpucounters.h"
 
 #ifndef _MSC_VER
-#include <signal.h>
+#include <csignal>
+#include <ctime>
+#include <cmath>
 #endif
 
-#ifdef _MSC_VER
-inline BOOL cleanup(DWORD)
-{
-    PCM::getInstance()->cleanup();
-    return FALSE;
-}
-#else
-inline void cleanup(int s)
-{
-    signal(s, SIG_IGN);
-    PCM::getInstance()->cleanup();
-    exit(0);
-}
+void exit_cleanup(void);
+void set_signal_handlers(void);
+void restore_signal_handlers(void);
+#ifndef _MSC_VER
+void sigINT_handler(int signum);
+void sigHUP_handler(int signum);
+void sigUSR_handler(int signum);
+void sigSTOP_handler(int signum);
+void sigCONT_handler(int signum);
 #endif
 
 #ifdef _MSC_VER
@@ -70,7 +75,11 @@ inline void MySleepMs(int delay_ms)
 #ifdef _MSC_VER
     if(delay_ms) Sleep(delay_ms);
 #else
-    ::sleep(delay_ms/1000);
+    struct timespec sleep_intrval;
+    double complete_seconds;
+    sleep_intrval.tv_nsec = static_cast<long>(1000000000.0*(::modf(delay_ms/1000.0,&complete_seconds)));
+    sleep_intrval.tv_sec = static_cast<time_t>(complete_seconds);
+    ::nanosleep(&sleep_intrval, NULL);
 #endif
 }
 
@@ -80,18 +89,11 @@ inline void MySleepUs(int delay_us)
     if(delay_us) win_usleep(delay_us);
 #else
     ::usleep(delay_us);
+
 #endif
 }
 
-inline int MySystem(char * sysCmd)
-{
-    std::cout << "\n Executing \"";
-    std::cout << sysCmd;
-    std::cout << "\" command:\n" << std::endl;
-    int result = system(sysCmd);
-    std::cout << "Exit code: " << result <<"\n"<< std::endl;
-    return result;
-}
+void MySystem(char * sysCmd, char ** argc);
 
 struct null_stream : public std::streambuf
 {
@@ -128,6 +130,12 @@ inline std::string unit_format(IntType n)
 }
 
 
-#define PCM_COMPILE_ASSERT(condition) typedef char pcm_compile_assert_failed [ (condition) ? 1 : -1 ];
+#define PCM_UNUSED(x) (void)(x)
 
-#endif 
+#define PCM_COMPILE_ASSERT(condition) \
+   typedef char pcm_compile_assert_failed [ (condition) ? 1 : -1 ]; \
+   pcm_compile_assert_failed pcm_compile_assert_failed_; \
+   PCM_UNUSED(pcm_compile_assert_failed_);
+
+#endif
+

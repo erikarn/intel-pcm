@@ -1,5 +1,5 @@
 // stdafx.cpp : source file that includes just the standard includes
-// iCPUStat.pch will be the pre-compiled header
+// pcm.pch will be the pre-compiled header
 // stdafx.obj will contain the pre-compiled type information
 
 #include "stdafx.h"

@@ -16,6 +16,10 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 #ifndef WIDTH_EXTENDER_HEADER_
 #define WIDTH_EXTENDER_HEADER_ 
 
+/*!     \file width_extender.h
+        \brief Provides 64-bit "virtual" counters from underlying 32-bit HW counters
+*/
+
 #ifdef _MSC_VER
 #include <windows.h>
 #else
@@ -43,9 +47,9 @@ public:
 
    struct MsrHandleCounter : public AbstractRawCounter
    {
-      MsrHandle * msr;
+      SafeMsrHandle * msr;
       uint64 msr_addr;
-      MsrHandleCounter(MsrHandle * msr_, uint64 msr_addr_): msr(msr_), msr_addr(msr_addr_) {}
+      MsrHandleCounter(SafeMsrHandle * msr_, uint64 msr_addr_): msr(msr_), msr_addr(msr_addr_) {}
       uint64 operator() ()
       {
          uint64 value = 0;
@@ -66,6 +70,13 @@ public:
       ClientBW * clientBW;
       ClientImcWritesCounter(ClientBW * clientBW_): clientBW(clientBW_) {}
       uint64 operator() () { return clientBW->getImcWrites(); }
+   };
+   
+   struct ClientIoRequestsCounter : public AbstractRawCounter
+   {
+      ClientBW * clientBW;
+      ClientIoRequestsCounter(ClientBW * clientBW_): clientBW(clientBW_) {}
+      uint64 operator() () { return clientBW->getIoRequests(); }
    };
 
 private:
