@@ -16,4 +16,4 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 #include "stdafx.h"
 
-#include "../cpucounterstest.cpp"
+#include "../pcm.cpp"

@@ -203,6 +203,10 @@
 				RelativePath=".\stdafx.cpp"
 				>
 			</File>
+			<File
+				RelativePath="..\utils.cpp"
+				>
+			</File>
 		</Filter>
 		<Filter
 			Name="Header Files"
@@ -235,6 +239,10 @@
 			</File>
 			<File
 				RelativePath=".\windriver.h"
+				>
+			</File>
+			<File
+				RelativePath="..\utils.h"
 				>
 			</File>
 		</Filter>

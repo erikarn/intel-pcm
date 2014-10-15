@@ -30,6 +30,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 #endif
 
 #define PCM_CLIENT_IMC_BAR_OFFSET       (0x0048)
+#define PCM_CLIENT_IMC_DRAM_IO_REQESTS  (0x5048)
 #define PCM_CLIENT_IMC_DRAM_DATA_READS  (0x5050)
 #define PCM_CLIENT_IMC_DRAM_DATA_WRITES (0x5054)
 #define PCM_CLIENT_IMC_MMAP_SIZE        (0x6000)
@@ -50,6 +51,7 @@ public:
 
    uint64 getImcReads();
    uint64 getImcWrites();
+   uint64 getIoRequests();
 
    ~ClientBW();
 };

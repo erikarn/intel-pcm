@@ -24,6 +24,8 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 // compile for Windows 7 or Windows Server 2008 R2 (processor group support needed for systems with high core count)
 #define COMPILE_FOR_WINDOWS_7
 
+#undef PCM_DEBUG
+
 #include <iostream>
 #include <istream>
 #include <sstream>
@@ -129,7 +131,7 @@ typedef signed int int32;
 #define ATOM_MEM_LOAD_RETIRED_L2_MISS_UMASK   (0x02)
 
 /*
-     For Nehalem(-EP) processors from Intel(r) 64 and IA-32 Architectures Software Developer’s Manual
+     For Nehalem(-EP) processors from Intel(r) 64 and IA-32 Architectures Software Developer's Manual
 */
 
 // Uncore msrs
@@ -472,6 +474,24 @@ struct BecktonUncorePMUCNTCTLRegister
 #define JKTIVT_MC1_CH2_REGISTER_FUNC_ADDR (0)
 #define JKTIVT_MC1_CH3_REGISTER_FUNC_ADDR (1)
 
+#define HSX_MC0_CH0_REGISTER_DEV_ADDR (20)
+#define HSX_MC0_CH1_REGISTER_DEV_ADDR (20)
+#define HSX_MC0_CH2_REGISTER_DEV_ADDR (21)
+#define HSX_MC0_CH3_REGISTER_DEV_ADDR (21)
+#define HSX_MC0_CH0_REGISTER_FUNC_ADDR (0)
+#define HSX_MC0_CH1_REGISTER_FUNC_ADDR (1)
+#define HSX_MC0_CH2_REGISTER_FUNC_ADDR (0)
+#define HSX_MC0_CH3_REGISTER_FUNC_ADDR (1)
+
+#define HSX_MC1_CH0_REGISTER_DEV_ADDR (23)
+#define HSX_MC1_CH1_REGISTER_DEV_ADDR (23)
+#define HSX_MC1_CH2_REGISTER_DEV_ADDR (24)
+#define HSX_MC1_CH3_REGISTER_DEV_ADDR (24)
+#define HSX_MC1_CH0_REGISTER_FUNC_ADDR (0)
+#define HSX_MC1_CH1_REGISTER_FUNC_ADDR (1)
+#define HSX_MC1_CH2_REGISTER_FUNC_ADDR (0)
+#define HSX_MC1_CH3_REGISTER_FUNC_ADDR (1)
+
 #define MC_CH_PCI_PMON_BOX_CTL_ADDR (0x0F4)
 
 #define MC_CH_PCI_PMON_FIXED_CTL_ADDR (0x0F0)
@@ -493,8 +513,20 @@ struct BecktonUncorePMUCNTCTLRegister
 #define JKTIVT_QPI_PORT2_REGISTER_DEV_ADDR  (24)
 #define JKTIVT_QPI_PORT2_REGISTER_FUNC_ADDR (2)
 
+#define HSX_QPI_PORT0_REGISTER_DEV_ADDR  (8)
+#define HSX_QPI_PORT0_REGISTER_FUNC_ADDR (2)
+#define HSX_QPI_PORT1_REGISTER_DEV_ADDR  (9)
+#define HSX_QPI_PORT1_REGISTER_FUNC_ADDR (2)
+#define HSX_QPI_PORT2_REGISTER_DEV_ADDR  (10)
+#define HSX_QPI_PORT2_REGISTER_FUNC_ADDR (2)
+
 #define QPI_PORT0_MISC_REGISTER_DEV_ADDR  (8)
 #define QPI_PORT0_MISC_REGISTER_FUNC_ADDR (0)
+#define QPI_PORT1_MISC_REGISTER_DEV_ADDR  (9)
+#define QPI_PORT1_MISC_REGISTER_FUNC_ADDR (0)
+#define QPI_PORT2_MISC_REGISTER_DEV_ADDR  (24)
+#define QPI_PORT2_MISC_REGISTER_FUNC_ADDR (0)
+
 
 #define Q_P_PCI_PMON_BOX_CTL_ADDR (0x0F4)
 
@@ -524,6 +556,19 @@ struct BecktonUncorePMUCNTCTLRegister
 
 #define JKTIVT_PCU_MSR_PMON_BOX_CTL_ADDR (0x0C24)
 
+#define HSX_PCU_MSR_PMON_CTR3_ADDR (0x071A)
+#define HSX_PCU_MSR_PMON_CTR2_ADDR (0x0719)
+#define HSX_PCU_MSR_PMON_CTR1_ADDR (0x0718)
+#define HSX_PCU_MSR_PMON_CTR0_ADDR (0x0717)
+
+#define HSX_PCU_MSR_PMON_BOX_FILTER_ADDR (0x0715)
+
+#define HSX_PCU_MSR_PMON_CTL3_ADDR (0x0714)
+#define HSX_PCU_MSR_PMON_CTL2_ADDR (0x0713)
+#define HSX_PCU_MSR_PMON_CTL1_ADDR (0x0712)
+#define HSX_PCU_MSR_PMON_CTL0_ADDR (0x0711)
+
+#define HSX_PCU_MSR_PMON_BOX_CTL_ADDR (0x0710)
 
 #define MC_CH_PCI_PMON_BOX_CTL_RST_CONTROL 	(1<<0)
 #define MC_CH_PCI_PMON_BOX_CTL_RST_COUNTERS 	(1<<1)
@@ -594,6 +639,24 @@ struct BecktonUncorePMUCNTCTLRegister
 
 #define IVT_C0_MSR_PMON_BOX_FILTER1 0x0D1A // CBo 0 PMON Filter 1
 
+#define HSX_C0_MSR_PMON_CTR3 0x0E0B // CBo 0 PMON Counter 3
+#define HSX_C0_MSR_PMON_CTR2 0x0E0A // CBo 0 PMON Counter 2
+#define HSX_C0_MSR_PMON_CTR1 0x0E09 // CBo 0 PMON Counter 1
+#define HSX_C0_MSR_PMON_CTR0 0x0E08 // CBo 0 PMON Counter 0
+
+#define HSX_C0_MSR_PMON_BOX_FILTER1 0x0E06 // CBo 0 PMON Filter1
+#define HSX_C0_MSR_PMON_BOX_FILTER 0x0E05 // CBo 0 PMON Filter0
+
+#define HSX_C0_MSR_PMON_CTL3 0x0E04 // CBo 0 PMON Control for Counter 3
+#define HSX_C0_MSR_PMON_CTL2 0x0E03 // CBo 0 PMON Control for Counter 2
+#define HSX_C0_MSR_PMON_CTL1 0x0E02 // CBo 0 PMON Control for Counter 1
+#define HSX_C0_MSR_PMON_CTL0 0x0E01 // CBo 0 PMON Control for Counter 0
+
+#define HSX_C0_MSR_PMON_BOX_STATUS 0x0E07 // CBo 0 PMON Box-Wide Status
+#define HSX_C0_MSR_PMON_BOX_CTL 0x0E00 // CBo 0 PMON Box-Wide Control
+
+#define HSX_CBO_MSR_STEP         0x0010 // CBo MSR Step
+
 #define CBO_MSR_PMON_BOX_CTL_RST_CONTROL (1<<0)
 #define CBO_MSR_PMON_BOX_CTL_RST_COUNTERS (1<<1)
 #define CBO_MSR_PMON_BOX_CTL_FRZ (1<<8)
@@ -609,7 +672,7 @@ struct BecktonUncorePMUCNTCTLRegister
 #define CBO_MSR_PMON_CTL_THRESH(x) (x<<24UL)
 
 #define JKT_CBO_MSR_PMON_BOX_FILTER_OPC(x) (x<<23UL)
-#define IVT_CBO_MSR_PMON_BOX_FILTER1_OPC(x) (x<<20UL)
+#define IVTHSX_CBO_MSR_PMON_BOX_FILTER1_OPC(x) (x<<20UL)
 
 #define MSR_PACKAGE_THERM_STATUS (0x01B1)
 #define MSR_IA32_THERM_STATUS    (0x019C)

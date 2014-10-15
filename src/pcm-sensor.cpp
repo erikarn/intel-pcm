@@ -35,7 +35,7 @@ int main()
     AsynchronCounterState counters;
 
     cout << "CPU counter sensor "<< INTEL_PCM_VERSION << endl;
-    cout << "(C) 2010,2012 Intel Corp." << endl;
+    cout << "(C) 2010-2014 Intel Corp." << endl;
     cout << "ksysguardd 1.2.0" << endl;
     cout << "ksysguardd> ";
 
